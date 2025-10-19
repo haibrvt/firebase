@@ -1,0 +1,39 @@
+name: MyFXBook Data Scraper
+
+on:
+  schedule:
+    # Biểu thức cron cho "chạy mỗi 5 phút"
+    # Cú pháp: */5 nghĩa là tại phút 0, 5, 10, 15, ..., 55 của mỗi giờ.
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Cho phép bạn chạy thủ công bất cứ lúc nào
+
+jobs:
+  run_scraper:
+    # Chạy trên môi trường Linux mới nhất
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 1. Checkout Code
+      # Tải mã từ kho lưu trữ về môi trường Runner
+      uses: actions/checkout@v4
+
+    - name: 2. Set up Python
+      # Thiết lập môi trường Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: 3. Install Dependencies
+      # Cài đặt các thư viện cần thiết (requests và firebase-admin)
+      run: |
+        echo "requests" > requirements.txt
+        echo "firebase-admin" >> requirements.txt
+        pip install -r requirements.txt
+
+    - name: 4. Create Firebase Service Account File
+      # Sử dụng Secret để tạo lại tệp JSON cần thiết trong runtime
+      run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > datafx-45432-firebase-adminsdk-fbsvc-3132a63c50.json
+
+    - name: 5. Run Python Script
+      # Chạy tệp Python chính
+      run: python laysession.py
