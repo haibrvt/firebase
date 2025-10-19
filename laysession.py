@@ -3,7 +3,6 @@ import json
 from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
-# import time # ❌ Đã xóa thư viện time vì không cần time.sleep()
 
 # --- Cấu hình API Myfxbook ---
 # ⚠️ THAY THẾ BẰNG THÔNG TIN THỰC TẾ CỦA BẠN
@@ -20,9 +19,6 @@ COLLECTION_NAME = 'myfxbook_snapshots'
 OPEN_TRADES_SUMMARY_COLLECTION = 'myfxbook_trades_summary' 
 SESSION_DOC_ID = 'current_session'          
 TRADES_DOC_ID = 'current_trades_summary'     
-
-# ❌ Đã loại bỏ firebase_app toàn cục và khởi tạo
-# Khởi tạo Firebase sẽ được thực hiện trong hàm run_data_collection
 
 def initialize_firebase():
     """Khởi tạo Firebase Admin SDK."""
@@ -122,27 +118,27 @@ def save_open_trades_summary(db, open_trades_data):
         open_trades_summary_list = list(accounts_with_trades.values())
         
         if open_trades_summary_list:
-            
-            # Tạo document để lưu vào Firestore
-            current_time = datetime.now()
-            doc_id = TRADES_DOC_ID
-            
-            summary_document = {
-                'timestamp': current_time.isoformat(),
-                'data': open_trades_summary_list,
-                'success': True
-            }
-            
-            # Lưu vào document với ID cố định
-            doc_ref = db.collection(OPEN_TRADES_SUMMARY_COLLECTION).document(doc_id)
-            doc_ref.set(summary_document)
-            
-            print("✅ Mảng JSON Tóm Tắt Lệnh Đang Mở Đã Tạo:")
-            print(json.dumps(open_trades_summary_list, indent=4))
-            print(f"✅ Đã lưu Mảng Tóm Tắt thành công vào Collection '{OPEN_TRADES_SUMMARY_COLLECTION}' với ID: {doc_id}")
-            
-        except Exception as e:
-            print(f"❌ Lỗi khi lưu Mảng Tóm Tắt vào Firestore: {e}")
+            try:  # ⚠️ KHỐI TRY ĐÃ ĐƯỢC THÊM VÀO ĐÂY ĐỂ BAO BỌC LOGIC LƯU
+                # Tạo document để lưu vào Firestore
+                current_time = datetime.now()
+                doc_id = TRADES_DOC_ID
+                
+                summary_document = {
+                    'timestamp': current_time.isoformat(),
+                    'data': open_trades_summary_list,
+                    'success': True
+                }
+                
+                # Lưu vào document với ID cố định
+                doc_ref = db.collection(OPEN_TRADES_SUMMARY_COLLECTION).document(doc_id)
+                doc_ref.set(summary_document)
+                
+                print("✅ Mảng JSON Tóm Tắt Lệnh Đang Mở Đã Tạo:")
+                print(json.dumps(open_trades_summary_list, indent=4))
+                print(f"✅ Đã lưu Mảng Tóm Tắt thành công vào Collection '{OPEN_TRADES_SUMMARY_COLLECTION}' với ID: {doc_id}")
+                
+            except Exception as e: # ⚠️ KHỐI EXCEPT ĐÃ ĐƯỢC THAY ĐỔI
+                print(f"❌ Lỗi khi lưu Mảng Tóm Tắt vào Firestore: {e}")
     else:
         print("⚠️ Bỏ qua bước Lưu Mảng Tóm Tắt: Danh sách rỗng.")
 
@@ -202,5 +198,3 @@ if __name__ == '__main__':
     print("\n" + "~" * 60)
     print("🏁 Tập lệnh đã hoàn thành và sẽ kết thúc.")
     print("~" * 60)
-    
-    # ❌ Đã loại bỏ time.sleep() và vòng lặp while True
