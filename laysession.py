@@ -15,10 +15,10 @@ GET_OPEN_TRADES_API_BASE = "https://www.myfxbook.com/api/get-open-trades.json"
 
 # --- Cấu hình Firebase ---
 SERVICE_ACCOUNT_FILE = 'datafx-45432-firebase-adminsdk-fbsvc-3132a63c50.json' 
-COLLECTION_NAME = 'myfxbook_snapshots'      
-OPEN_TRADES_SUMMARY_COLLECTION = 'myfxbook_trades_summary' 
-SESSION_DOC_ID = 'current_session'          
-TRADES_DOC_ID = 'current_trades_summary'     
+COLLECTION_NAME = 'myfxbook_snapshots'              # Collection lưu dữ liệu tài khoản tổng quan
+OPEN_TRADES_SUMMARY_COLLECTION = 'myfxbook_trades_summary' # Collection lưu mảng tóm tắt lệnh mở
+SESSION_DOC_ID = 'current_session'                  # ID document cho bản latest/dashboard
+SUMMARY_DOC_PREFIX = 'summary_snapshot'             # Tiền tố cho document lưu mảng tóm tắt lịch sử
 
 def initialize_firebase():
     """Khởi tạo Firebase Admin SDK."""
@@ -26,9 +26,10 @@ def initialize_firebase():
         if not firebase_admin._apps:
             cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
             firebase_admin.initialize_app(cred)
+        print("✅ Kết nối Firebase thành công.")
         return firestore.client()
     except firebase_exceptions.FirebaseError as fe:
-        print(f"❌ LỖI FIREBASE CỤ THỂ: Không thể khởi tạo. Vui lòng kiểm tra file khóa {SERVICE_ACCOUNT_FILE} và Secret: {fe}")
+        print(f"❌ LỖI FIREBASE CỤ THỂ: Không thể khởi tạo. Vui lòng kiểm tra file khóa: {fe}")
         raise
     except Exception as e:
         print(f"❌ LỖI KHỞI TẠO CHUNG: {e}")
@@ -36,31 +37,23 @@ def initialize_firebase():
 
 def get_session_id():
     """Lấy Session ID bằng cách đăng nhập."""
-    print("⏳ Đang đăng nhập để lấy Session ID...")
+    print("\n⏳ Đang đăng nhập để lấy Session ID...")
     try:
         response = requests.get(LOGIN_API, timeout=30) 
-        
-        if response.status_code != 200:
-            print(f"❌ Lỗi HTTP: Status Code {response.status_code}. Phản hồi của server: {response.text}")
-            response.raise_for_status()
-        
+        response.raise_for_status() # Báo lỗi HTTP nếu có
         data = response.json()
         
-        # LOGIC KIỂM TRA THÀNH CÔNG ĐÃ ĐƯỢC SỬA 
         is_success = data.get('session') and (data.get('error') is False or data.get('error') is None)
         
         if is_success:
             session_id = data['session']
-            print(f"✅ Đăng nhập thành công! Session ID: {session_id[:10]}...")
+            print(f"✅ Đăng nhập thành công! Session ID: **{session_id[:10]}...**")
             return session_id
         else:
             print("❌ Đăng nhập thất bại. Mã phản hồi JSON (Kiểm tra Email/Password):")
             print(json.dumps(data, indent=4))
             return None
             
-    except requests.exceptions.Timeout:
-        print("❌ LỖI MẠNG: Đăng nhập bị Timeout (Quá 30 giây).")
-        return None
     except requests.exceptions.RequestException as e:
         print(f"❌ LỖI KẾT NỐI API Myfxbook (Đăng nhập): {e}")
         return None
@@ -76,6 +69,9 @@ def fetch_data(api_url, session_id, **params):
     if params:
         for key, value in params.items():
             full_url += f"&{key}={value}"
+    
+    # ℹ️ In ra URL để debug (tùy chọn)
+    # print(f"    -> Gọi API: {full_url}")
 
     try:
         response = requests.get(full_url, timeout=30)
@@ -86,54 +82,46 @@ def fetch_data(api_url, session_id, **params):
             
         data = response.json()
         
-        if data.get('error') is True:
-            print(f"❌ API báo lỗi khi gọi {api_url}. JSON phản hồi:")
-            print(json.dumps(data, indent=4))
+        if data.get('error') and data.get('error') is not False:
+            print(f"❌ API báo lỗi khi gọi {api_url}: {data['error']}")
             return None 
             
         return data 
         
-    except requests.exceptions.Timeout:
-        print(f"❌ LỖI MẠNG: Gọi API {api_url} bị Timeout.")
-        return None
     except requests.exceptions.RequestException as e:
         print(f"❌ LỖI KẾT NỐI API Myfxbook ({api_url}): {e}")
         return None
     except json.JSONDecodeError:
-        print(f"❌ LỖI PHÂN TÍCH JSON: Phản hồi không phải JSON hợp lệ từ {api_url}. Nội dung: {response.text[:100]}...")
+        print(f"❌ LỖI PHÂN TÍCH JSON: Phản hồi không phải JSON hợp lệ từ {api_url}.")
         return None
 
 def find_account_list(data):
-    """
-    Tìm mảng dữ liệu tài khoản (hoặc lệnh mở) trong phản hồi JSON thô một cách linh hoạt.
-    Sẽ tìm kiếm bất kỳ trường nào là một list không rỗng chứa dictionary có key đặc trưng.
-    """
+    """Tìm mảng dữ liệu tài khoản trong phản hồi JSON thô."""
     if not isinstance(data, dict):
         return []
-
-    # Kiểm tra tổng quát hơn: tìm bất kỳ trường nào là một list không rỗng, 
-    # và phần tử đầu tiên là một dict có các key đặc trưng của tài khoản.
+    
+    # Myfxbook thường dùng key 'accounts' hoặc 'openTrades'
+    if 'accounts' in data and isinstance(data['accounts'], list):
+        return data['accounts']
+    
+    # Trường hợp chung: tìm list không rỗng chứa dict với các key đặc trưng
     for key, value in data.items():
         if isinstance(value, list) and value and isinstance(value[0], dict):
-            # Các key đặc trưng của object tài khoản:
-            # Dùng 3 key này để đảm bảo nó là mảng tài khoản, không phải mảng lệnh mở/lịch sử giao dịch.
-            account_keys = {'id', 'name', 'balance', 'equity', 'gain'} 
-            
-            # Nếu tất cả các key đặc trưng đều có trong phần tử đầu tiên, đây là mảng tài khoản.
+            account_keys = {'id', 'name', 'balance', 'equity'} 
             if account_keys.issubset(value[0].keys()):
-                 print(f"ℹ️ Đã tìm thấy danh sách tài khoản dưới key: '{key}'")
                  return value
                  
-    # Nếu không tìm thấy, trả về list rỗng
     return []
 
-def save_snapshot_to_firestore(db, data):
-    """Lưu dữ liệu snapshot vào Firestore."""
+def save_snapshot_to_firestore(db, raw_data):
+    """
+    Lưu toàn bộ dữ liệu snapshot thô vào Firestore.
+    Lưu 2 bản: Latest (Dashboard) và History (Timestamp ID).
+    """
+    accounts_list = find_account_list(raw_data)
+    num_accounts = len(accounts_list) if accounts_list else 0
     
-    # 🆕 Sử dụng hàm tìm kiếm linh hoạt để lấy danh sách tài khoản
-    accounts_list = find_account_list(data)
-    
-    if not accounts_list:
+    if num_accounts == 0:
         print("❌ Lỗi: Không tìm thấy danh sách tài khoản hợp lệ trong phản hồi API.")
         return
 
@@ -141,61 +129,70 @@ def save_snapshot_to_firestore(db, data):
         current_time = datetime.now()
         timestamp_str = current_time.isoformat()
         
-        # 🟢 ĐÃ SỬA: Lưu mảng tài khoản vào trường 'accounts' theo yêu cầu
+        # ⚠️ Sửa đổi để lưu TOÀN BỘ phản hồi thô vào trường 'data'
         document_data = {
             'timestamp': timestamp_str,
-            'accounts': accounts_list, 
-            'success': data.get('error') is False
+            'source_api': 'myfxbook_get_my_accounts', # Thêm trường này giống laysession
+            'accounts_count': num_accounts,           # Thêm trường này giống laysession
+            'data': raw_data,                         # Lưu phản hồi thô (chứa khóa 'accounts')
+            'success': raw_data.get('error') is False
         }
         
-        # Lưu vào document dashboard (latest)
-        doc_ref = db.collection(COLLECTION_NAME).document(SESSION_DOC_ID)
-        doc_ref.set(document_data)
+        # 1. Lưu vào document dashboard (latest)
+        doc_ref_latest = db.collection(COLLECTION_NAME).document(SESSION_DOC_ID)
+        doc_ref_latest.set(document_data)
         
-        # Lưu vào history
-        history_doc_id = current_time.strftime("%Y%m%d_%H%M%S")
+        # 2. Lưu vào history
+        history_doc_id = f'snapshot-{current_time.strftime("%Y%m%d%H%M%S")}' # Giống định dạng laysession
         history_doc_ref = db.collection(COLLECTION_NAME).document(history_doc_id)
         history_doc_ref.set(document_data)
         
-        print(f"✅ Đã lưu Snapshot thành công. Số lượng tài khoản: {len(accounts_list)}. ID Dashboard: {SESSION_DOC_ID}, ID History: {history_doc_id}")
+        print(f"✅ Dữ liệu tổng quan của **{num_accounts}** tài khoản đã được lưu thành công vào Firestore.")
+        print(f"   ID Dashboard: {SESSION_DOC_ID}, ID History: {history_doc_id}")
     except Exception as e:
         print(f"❌ Lỗi khi lưu Snapshot vào Firestore: {e}")
 
 def save_open_trades_summary(db, open_trades_data):
-    """Tạo và lưu mảng tóm tắt số lệnh đang mở vào collection riêng."""
+    """
+    Tạo mảng tóm tắt số lệnh đang mở và lưu vào document lịch sử mới.
+    """
+    # API get-open-trades.json trả về JSON có key 'accounts' chứa mảng
+    accounts_with_trades_list = open_trades_data.get('accounts', []) 
     
-    # Ở đây chúng ta vẫn phải tìm mảng có key là 'accounts' để lấy trades[] bên trong
-    # Tuy nhiên, chúng ta có thể dùng find_account_list để bao quát
-    accounts_with_trades_list = find_account_list(open_trades_data)
-    
-    accounts_with_trades = {}
+    open_trades_summary_list = []
     
     if accounts_with_trades_list:
         for acc in accounts_with_trades_list:
             account_id_long = acc.get('id') 
-            trades = acc.get('trades', [])
+            trades = acc.get('openTrades', []) # API get-open-trades sử dụng key 'openTrades'
             
             if account_id_long:
-                # Tìm ID ngắn (phần trước dấu gạch ngang)
-                short_id_match = str(account_id_long).split('-')[0]
-                accounts_with_trades[short_id_match] = {
-                    'account_id': short_id_match, 
+                # Tạo mục tóm tắt
+                summary_item = {
+                    'account_id': account_id_long, 
                     'open_trades_count': len(trades)
                 }
+                open_trades_summary_list.append(summary_item)
 
-        open_trades_summary_list = list(accounts_with_trades.values())
         
         if open_trades_summary_list:
             try:
                 current_time = datetime.now()
-                doc_id = TRADES_DOC_ID
+                timestamp_str = current_time.isoformat()
+                
                 summary_document = {
-                    'timestamp': current_time.isoformat(),
-                    'data': open_trades_summary_list, 
+                    'timestamp': timestamp_str,
+                    'source_api': 'myfxbook_open_trades_summary', # Giống laysession
+                    'accounts_count': len(open_trades_summary_list),
+                    'data': open_trades_summary_list,             # Đây là mảng JSON tóm tắt
                     'success': open_trades_data.get('error') is False
                 }
+                
+                # Sử dụng timestamp làm ID document lịch sử với tiền tố
+                doc_id = f'{SUMMARY_DOC_PREFIX}-{current_time.strftime("%Y%m%d%H%M%S")}'
                 doc_ref = db.collection(OPEN_TRADES_SUMMARY_COLLECTION).document(doc_id)
                 doc_ref.set(summary_document)
+                
                 print("✅ Mảng JSON Tóm Tắt Lệnh Đang Mở Đã Tạo:")
                 print(json.dumps(open_trades_summary_list, indent=4))
                 print(f"✅ Đã lưu Mảng Tóm Tắt thành công vào Collection '{OPEN_TRADES_SUMMARY_COLLECTION}' với ID: {doc_id}")
@@ -203,13 +200,17 @@ def save_open_trades_summary(db, open_trades_data):
             except Exception as e:
                 print(f"❌ Lỗi khi lưu Mảng Tóm Tắt vào Firestore: {e}")
     else:
-        print("⚠️ Bỏ qua bước Lưu Mảng Tóm Tắt: Danh sách rỗng.")
+        print("⚠️ Bỏ qua bước Lưu Mảng Tóm Tắt: Không có dữ liệu lệnh đang mở hợp lệ.")
 
 
 def run_data_collection():
     """Thực hiện toàn bộ quy trình thu thập và lưu dữ liệu."""
     
     account_ids_list = []
+    
+    print("\n" + "=" * 50)
+    print(f"🎬 BẮT ĐẦU VÒNG CHẠY lúc: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 50)
 
     try:
         # 1. Khởi tạo Firebase
@@ -222,34 +223,31 @@ def run_data_collection():
             return
 
         # 3. Lấy dữ liệu Snapshot tài khoản
+        print("-" * 40)
         print("⏳ Đang lấy dữ liệu Snapshot Tài khoản...")
-        # Lấy dữ liệu
         account_snapshot_data = fetch_data(GET_ACCOUNTS_API_BASE, session_id) 
         
         if account_snapshot_data:
-            # Sửa logic để lấy danh sách tài khoản một cách linh hoạt
+            # Lưu dữ liệu Snapshot
+            save_snapshot_to_firestore(db, account_snapshot_data)
+                
+            # TRÍCH XUẤT TẤT CẢ ACCOUNT ID cho bước tiếp theo
             accounts_list = find_account_list(account_snapshot_data)
+            account_ids_list = [
+                str(acc.get('id')) for acc in accounts_list
+                if acc.get('id') is not None
+            ]
             
-            if accounts_list:
-                save_snapshot_to_firestore(db, account_snapshot_data)
-                
-                # TRÍCH XUẤT TẤT CẢ ACCOUNT ID cho bước tiếp theo
-                account_ids_list = [
-                    str(acc.get('id')) for acc in accounts_list
-                    if acc.get('id') is not None
-                ]
-                
-                if not account_ids_list:
-                    print("⚠️ Không tìm thấy bất kỳ ID tài khoản nào để lấy lệnh đang mở.")
-                    return
+            if not account_ids_list:
+                print("⚠️ Không tìm thấy bất kỳ ID tài khoản nào để lấy lệnh đang mở.")
+                return
 
-            else:
-                 print("❌ Lỗi khi lấy dữ liệu Snapshot hoặc không có tài khoản nào.")
-                 return
         else:
+             print("❌ Lỗi khi lấy dữ liệu Snapshot Tài khoản. Bỏ qua các bước tiếp theo.")
              return
 
         # 4. Lấy dữ liệu Lệnh Đang Mở (Open Trades)
+        print("-" * 40)
         print("⏳ Đang lấy dữ liệu Lệnh Đang Mở...")
         
         # GẮN THAM SỐ accountIds = chuỗi các ID cách nhau bằng dấu phẩy
@@ -261,15 +259,17 @@ def run_data_collection():
             accountIds=account_ids_param 
         )
         
+        # 5. Lưu mảng tóm tắt Lệnh Đang Mở
+        print("-" * 40)
         if open_trades_data:
             save_open_trades_summary(db, open_trades_data)
         else:
-            pass 
+            print("⚠️ Bỏ qua bước Lưu Mảng Tóm Tắt: Không lấy được dữ liệu lệnh đang mở.")
 
     except Exception as e:
-        print(f"‼️ LỖI NGHIÊM TRỌNG TRONG QUÁ TRÌNH CHẠY: {e}. Vui lòng kiểm tra lại cấu hình.")
+        print(f"\n‼️ LỖI NGHIÊM TRỌNG TRONG QUÁ TRÌNH CHẠY: {e}. Vui lòng kiểm tra lại cấu hình.")
 
-    print("-" * 40)
+    print("\n" + "-" * 40)
     print("🏁 Quy trình cho vòng chạy này hoàn tất.")
 
 
