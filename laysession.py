@@ -21,7 +21,7 @@ OPEN_TRADES_SUMMARY_COLLECTION = 'myfxbook_trades_summary'
 SESSION_DOC_ID = 'current_session'          
 SUMMARY_DOC_PREFIX = 'summary_snapshot'     
 
-# 🆕 Cấu hình Múi Giờ Việt Nam (Asia/Ho_Chi_Minh = UTC+7)
+# 🇻🇳 Cấu hình Múi Giờ Việt Nam (Asia/Ho_Chi_Minh = UTC+7)
 VN_TIMEZONE = pytz.timezone('Asia/Ho_Chi_Minh')
 
 
@@ -41,7 +41,7 @@ def initialize_firebase():
         print(f"❌ LỖI KHỞI TẠO CHUNG: {e}")
         raise
 
-# --- Hàm Hỗ Trợ (Giữ nguyên) ---
+# --- Hàm Hỗ Trợ ---
 def get_session_from_db(db):
     if not db: return None
     try:
@@ -124,18 +124,21 @@ def perform_login():
         print(f"❌ LỖI PHÂN TÍCH JSON: Phản hồi đăng nhập không hợp lệ.")
         return None
 
-# --- Hàm Quy trình Chính (Thực thi một lần - Đã sửa múi giờ) ---
+# ----------------------------------------------------------------------
+# --- Hàm Quy trình Chính (ĐÃ SỬA LỖI MÚI GIỜ TRIỆT ĐỂ) ---
+# ----------------------------------------------------------------------
 
 def run_data_collection():
     """Chứa toàn bộ logic thu thập và lưu dữ liệu chính."""
     
-    # 🇻🇳 LẤY THỜI GIAN HIỆN TẠI VỚI MÚI GIỜ VIỆT NAM (CÁCH CHUẨN MỰC HƠN)
+    # BƯỚC SỬA LỖI MÚI GIỜ QUAN TRỌNG:
     # 1. Lấy thời gian hiện tại ở UTC (zone-aware)
-    utc_now = datetime.now(pytz.utc)
+    utc_now = datetime.now(pytz.utc) 
     # 2. Chuyển đổi sang múi giờ Việt Nam (UTC+7)
     timestamp = utc_now.astimezone(VN_TIMEZONE) 
     
-    timestamp_str = timestamp.isoformat()
+    # Định dạng ISO 8601 (có kèm +07:00) để lưu vào Firestore/JSON
+    timestamp_str = timestamp.isoformat() 
     
     session_id = None
     all_accounts_data = None
@@ -181,6 +184,7 @@ def run_data_collection():
             new_session = perform_login()
             if new_session:
                 session_id = new_session
+                # Lưu session ID mới với thời gian VN
                 save_session_to_db(db, session_id, timestamp_str) 
             else:
                 print("❌ Đăng nhập thất bại và không thể lấy Session ID mới. Thoát.")
@@ -192,13 +196,14 @@ def run_data_collection():
         num_accounts = len(all_accounts_data['accounts'])
         print(f"3. Đang Lưu dữ liệu tổng quan của {num_accounts} tài khoản vào Firestore...")
         snapshot_document = {
-            # Biến timestamp_str đã được định dạng chuẩn ISO 8601 (có kèm múi giờ)
+            # Sử dụng timestamp_str đã được chuyển đổi sang UTC+7
             'timestamp': timestamp_str, 
             'source_api': 'myfxbook_get_my_accounts',
             'accounts_count': num_accounts,
             'data': all_accounts_data 
         }
         try:
+            # ID document cũng được định dạng bằng thời gian UTC+7
             doc_id = f'snapshot-{timestamp.strftime("%Y%m%d%H%M%S")}'
             doc_ref = db.collection(COLLECTION_NAME).document(doc_id)
             doc_ref.set(snapshot_document)
