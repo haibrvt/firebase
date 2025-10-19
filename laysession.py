@@ -141,10 +141,10 @@ def save_snapshot_to_firestore(db, data):
         current_time = datetime.now()
         timestamp_str = current_time.isoformat()
         
-        # Luôn lưu mảng tài khoản vào trường 'data' để front-end đã fix có thể đọc được
+        # 🟢 ĐÃ SỬA: Lưu mảng tài khoản vào trường 'accounts' theo yêu cầu
         document_data = {
             'timestamp': timestamp_str,
-            'data': accounts_list, 
+            'accounts': accounts_list, 
             'success': data.get('error') is False
         }
         
