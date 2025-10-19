@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
-from firebase_admin import exceptions as firebase_exceptions # 🆕 Thêm để bắt lỗi Firebase cụ thể
+from firebase_admin import exceptions as firebase_exceptions
 
 # --- Cấu hình API Myfxbook ---
 # ⚠️ THAY THẾ BẰNG THÔNG TIN THỰC TẾ CỦA BẠN
@@ -23,7 +23,6 @@ TRADES_DOC_ID = 'current_trades_summary'
 def initialize_firebase():
     """Khởi tạo Firebase Admin SDK."""
     try:
-        # Kiểm tra xem ứng dụng Firebase đã được khởi tạo chưa
         if not firebase_admin._apps:
             cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
             firebase_admin.initialize_app(cred)
@@ -39,21 +38,25 @@ def get_session_id():
     """Lấy Session ID bằng cách đăng nhập."""
     print("⏳ Đang đăng nhập để lấy Session ID...")
     try:
-        response = requests.get(LOGIN_API, timeout=30) # 🆕 Thêm timeout
+        response = requests.get(LOGIN_API, timeout=30) 
         
-        # 🆕 Bắt lỗi HTTP trước khi cố gắng parse JSON
         if response.status_code != 200:
             print(f"❌ Lỗi HTTP: Status Code {response.status_code}. Phản hồi của server: {response.text}")
-            response.raise_for_status() # Gây ra ngoại lệ HTTP
+            response.raise_for_status()
         
         data = response.json()
         
-        if data.get('success') and data.get('session'):
+        # 🟢 LOGIC KIỂM TRA THÀNH CÔNG ĐÃ ĐƯỢC SỬA: 
+        # API trả về Session ID và 'error': false.
+        # Kiểm tra nếu trường 'session' có giá trị VÀ trường 'error' KHÔNG phải là True.
+        is_success = data.get('session') and (data.get('error') is False or data.get('error') is None)
+        
+        if is_success:
             session_id = data['session']
             print(f"✅ Đăng nhập thành công! Session ID: {session_id[:10]}...")
             return session_id
         else:
-            # 🆕 In ra toàn bộ thông báo lỗi JSON từ Myfxbook
+            # In ra toàn bộ thông báo lỗi JSON từ Myfxbook nếu đăng nhập thất bại
             print("❌ Đăng nhập thất bại. Mã phản hồi JSON (Kiểm tra Email/Password):")
             print(json.dumps(data, indent=4))
             return None
@@ -81,12 +84,13 @@ def fetch_data(api_url, session_id):
             
         data = response.json()
         
-        if not data.get('success'):
+        # Kiểm tra nếu API báo lỗi trong phản hồi JSON
+        if data.get('error') is True:
             print(f"❌ API báo lỗi khi gọi {api_url}. JSON phản hồi:")
             print(json.dumps(data, indent=4))
-            return None # Trả về None nếu Myfxbook báo lỗi
+            return None 
             
-        return data # Trả về dữ liệu nếu success = true
+        return data 
         
     except requests.exceptions.Timeout:
         print(f"❌ LỖI MẠNG: Gọi API {api_url} bị Timeout.")
@@ -98,9 +102,6 @@ def fetch_data(api_url, session_id):
         print(f"❌ LỖI PHÂN TÍCH JSON: Phản hồi không phải JSON hợp lệ từ {api_url}. Nội dung: {response.text[:100]}...")
         return None
 
-# ... (Các hàm save_snapshot_to_firestore và save_open_trades_summary giữ nguyên) ...
-# Lưu ý: Các hàm lưu dữ liệu không thay đổi vì chúng không phải là nguyên nhân gây lỗi API.
-
 def save_snapshot_to_firestore(db, data):
     """Lưu dữ liệu snapshot vào Firestore."""
     try:
@@ -109,7 +110,7 @@ def save_snapshot_to_firestore(db, data):
         document_data = {
             'timestamp': timestamp_str,
             'data': data.get('accounts', []),
-            'success': data.get('success', False)
+            'success': data.get('success', True) # Giả định success là true vì đã lọc lỗi ở fetch_data
         }
         doc_ref = db.collection(COLLECTION_NAME).document(SESSION_DOC_ID)
         doc_ref.set(document_data)
@@ -173,7 +174,7 @@ def run_data_collection():
         print("⏳ Đang lấy dữ liệu Snapshot Tài khoản...")
         account_snapshot_data = fetch_data(GET_ACCOUNTS_API_BASE, session_id)
         
-        if account_snapshot_data: # Chỉ kiểm tra nếu dữ liệu không phải là None
+        if account_snapshot_data: 
             print(f"✅ Đã tải về {len(account_snapshot_data.get('accounts', []))} tài khoản.")
             save_snapshot_to_firestore(db, account_snapshot_data)
         else:
