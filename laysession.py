@@ -5,7 +5,6 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from firebase_admin import exceptions as firebase_exceptions
 import time 
-# 🆕 Thêm thư viện pytz để quản lý múi giờ
 import pytz 
 
 # --- Cấu hình API Myfxbook ---
@@ -130,8 +129,12 @@ def perform_login():
 def run_data_collection():
     """Chứa toàn bộ logic thu thập và lưu dữ liệu chính."""
     
-    # 🆕 LẤY THỜI GIAN HIỆN TẠI VỚI MÚI GIỜ VIỆT NAM
-    timestamp = datetime.now(VN_TIMEZONE)
+    # 🇻🇳 LẤY THỜI GIAN HIỆN TẠI VỚI MÚI GIỜ VIỆT NAM (CÁCH CHUẨN MỰC HƠN)
+    # 1. Lấy thời gian hiện tại ở UTC (zone-aware)
+    utc_now = datetime.now(pytz.utc)
+    # 2. Chuyển đổi sang múi giờ Việt Nam (UTC+7)
+    timestamp = utc_now.astimezone(VN_TIMEZONE) 
+    
     timestamp_str = timestamp.isoformat()
     
     session_id = None
@@ -189,7 +192,8 @@ def run_data_collection():
         num_accounts = len(all_accounts_data['accounts'])
         print(f"3. Đang Lưu dữ liệu tổng quan của {num_accounts} tài khoản vào Firestore...")
         snapshot_document = {
-            'timestamp': timestamp_str,
+            # Biến timestamp_str đã được định dạng chuẩn ISO 8601 (có kèm múi giờ)
+            'timestamp': timestamp_str, 
             'source_api': 'myfxbook_get_my_accounts',
             'accounts_count': num_accounts,
             'data': all_accounts_data 
@@ -215,7 +219,7 @@ def run_data_collection():
                 summary_item = fetch_and_get_open_trades_summary(session_id, account_id)
                 if summary_item:
                     open_trades_summary_list.append(summary_item) 
-                time.sleep(1) # Độ trễ
+                time.sleep(1) 
             else:
                 print("    ⚠️ Bỏ qua một tài khoản: Không tìm thấy ID.")
         print("✅ Hoàn tất quá trình lấy số lệnh đang mở và tạo mảng tóm tắt.")
