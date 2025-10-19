@@ -28,6 +28,7 @@ jobs:
       run: |
         echo "requests" > requirements.txt
         echo "firebase-admin" >> requirements.txt
+        echo "pytz" >> requirements.txt
         pip install -r requirements.txt
 
     - name: 4. Create Firebase Service Account File
