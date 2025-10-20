@@ -4,7 +4,7 @@ on:
   schedule:
     # Biểu thức cron cho "chạy mỗi 5 phút"
     # Cú pháp: */5 nghĩa là tại phút 0, 5, 10, 15, ..., 55 của mỗi giờ.
-    - cron: '*/5 * * * *'
+    - cron: '1,6,11,16,21,26,31,36,41,46,51,56 * * * *'
   workflow_dispatch: # Cho phép bạn chạy thủ công bất cứ lúc nào
 
 jobs:
