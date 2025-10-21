@@ -7,6 +7,9 @@ on:
     - cron: '*/15 * * * *'
     #- cron: '1,6,11,16,21,26,31,36,41,46,51,56 * * * *'
   workflow_dispatch: # Cho phép bạn chạy thủ công bất cứ lúc nào
+  # 💡 THÊM PHẦN NÀY VÀO FILE HIỆN TẠI
+  repository_dispatch:
+    types: [cap_nhat_web] # Đặt tên sự kiện tùy chỉnh (ví dụ: cap_nhat_web)
 
 jobs:
   run_scraper:
@@ -20,7 +23,7 @@ jobs:
 
     - name: 2. Set up Python
       # Thiết lập môi trường Python 3.10
-      uses: actions/setup-python@v5
+      uses: actions:setup-python@v5
       with:
         python-version: '3.10'
 
