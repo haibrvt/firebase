@@ -7,6 +7,8 @@ on:
     - cron: '*/15 * * * *'
     #- cron: '1,6,11,16,21,26,31,36,41,46,51,56 * * * *'
   workflow_dispatch: # Cho phép bạn chạy thủ công bất cứ lúc nào
+  repository_dispatch:
+    types: [cap_nhat_web] # Đặt tên sự kiện tùy chỉnh (ví dụ: cap_nhat_web)
 
 jobs:
   run_scraper:
